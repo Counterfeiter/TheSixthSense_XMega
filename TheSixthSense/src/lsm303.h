@@ -11,22 +11,35 @@
 
 #include <asf.h>
 
-typedef struct vector_s
+typedef struct vector_sf
 {
 	float x;
 	float y;
 	float z;
-} vector;
+} vector_f;
 
-vector accelData;    // Last read accelerometer data will be available here
-vector magData;        // Last read magnetometer data will be available here
+typedef struct vector_s16
+{
+	int16_t x;
+	int16_t y;
+	int16_t z;
+} vector_16;
 
-vector m_min;
-vector m_max;
+typedef struct vector_s32
+{
+	int32_t x;
+	int32_t y;
+	int32_t z;
+} vector_32;
 
-extern uint8_t LSM303_read(void);
+vector_f m_min;
+vector_f m_max;
+
 extern uint8_t LSM303_init(void);
-extern float heading(void);
+extern uint8_t LSM303_read_mag(vector_f *magData);
+extern uint8_t LSM303_read_accel(vector_f *accelData);
+extern void LSM303_writestartupsettings(void);
+extern float heading(const vector_f *magData,const vector_f *accelData);
 
 
 #endif /* LSM303_H_ */

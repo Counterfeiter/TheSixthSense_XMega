@@ -12,9 +12,8 @@
 
 #include <asf.h>
 
-uint8_t init_adc(void);
-
-volatile int16_t adc_value;
+void		init_adc(void);
+uint16_t	read_bat(void);
 
 
 #endif /* AKKU_ADC_H_ */

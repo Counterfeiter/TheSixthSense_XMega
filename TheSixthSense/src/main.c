@@ -26,6 +26,10 @@
  * Atmel Software Framework (ASF).
  */
 
+
+///////////////////////////////////////////// Source Version 1.0 //////////////////////////////////
+////////////////////////////////////// Works with TheSixthSense PCB V1.1 ///////////////////////////
+
 /*
  *
  * Created: 19.04.2015 12:36:47
@@ -33,6 +37,7 @@
  */ 
 #include <asf.h>
 #include <math.h>
+#include "akku_adc.h"
 #include "lsm303.h"
 
 #define PI 3.14159265
@@ -60,12 +65,12 @@ void init_pwm(void);
 void motor_test(void);
 void calibrate_program(void);
 
-float mag_direction(void);
+float mag_direction(const vector_f *magData);
 
 //you can use also a non calibartet and non accel. version, with this easy equation
-float mag_direction(void)
+float mag_direction(const vector_f *magData)
 {
-	return ((atan2 (magData.x,magData.z) * 180.0 / PI) + 180.0);
+	return ((atan2 (magData->x,magData->z) * 180.0 / PI) + 180.0);
 }
 
 
@@ -99,6 +104,8 @@ void init_pwm(void)
 	tc45_enable_cc_channels(&TIMER2, TC45_CCCCOMP);
 	tc45_enable_cc_channels(&TIMER2, TC45_CCDCOMP);
 	
+	
+	//channels inverted... full gain => motors off
 	write_MOT1(TIMER_RESOLUTION);
 	write_MOT2(TIMER_RESOLUTION);
 	write_MOT3(TIMER_RESOLUTION);
@@ -133,12 +140,14 @@ int main (void)
 	
 	init_pwm();
 	
+	init_adc();
+	
 	uint8_t iam = LSM303_init();
 
 	motor_program();
-	calibrate_program();
-	test_program();
-	motor_test();
+	//calibrate_program();
+	//test_program();
+	//motor_test();
 }
 
 //switch all motors on with full power
@@ -173,7 +182,9 @@ void motor_test(void)
 		uint16_t ang = (uint16_t)angle % 4;
 		
 
-		
+		//act with 2 from 4 motors at the same time
+		//but doesn't feel well... -> pwm not linear because of resonance frequenz of vibrators
+		//use 8 motors is a better solution
 		if(sector >= 0.0 && sector < 1.0) {
 			write_MOT1((TIMER_RESOLUTION - TIMER_RESOLUTION_MAX) + (ang*TIMER_RESOLUTION_MAX)/90);
 			write_MOT2(TIMER_RESOLUTION - (ang*TIMER_RESOLUTION_MAX)/90);
@@ -201,26 +212,33 @@ void motor_test(void)
 	}
 }
 
-
+#define ADC_MEASURE_INTERVAL	50 //(uint16_t)
 //normal operation program
 //wait a second, read the values start the correct motor(s) for 0,3s
 //flash short the green led
 void motor_program(void)
 {
+	uint16_t adc_interval = 0;
 	float angle= 0.0;
 	
 	//offset if needed
 	float offset_ang = 0.0;
 	
+	vector_f magData = {0.0, 0.0, 0.0};;
+	vector_f accelData = {0.0, 0.0, 0.0};;
+	
 	while(1) {
 
 		delay_ms(1000);
-		if(LSM303_read() == 0x00) {
+		if(LSM303_read_accel(&accelData) == 0x00) {
+			delay_ms(10);
+		}
+		if(LSM303_read_mag(&magData) == 0x00) {
 			delay_ms(10);
 		}
 			
 		//angle = mag_direction();
-		angle = heading();
+		angle = heading(&magData,&accelData);
 
 		gpio_set_pin_high(LED_GREEN_O);
 		
@@ -271,6 +289,20 @@ void motor_program(void)
 		write_MOT2(TIMER_RESOLUTION);
 		write_MOT3(TIMER_RESOLUTION);
 		write_MOT4(TIMER_RESOLUTION);
+		
+		//stop program if USB is pluged in for charging
+		while(gpio_pin_is_high(USB_DETECT_I)) { }
+			
+		uint16_t adc_value = 0;
+			
+		if(adc_interval++ > ADC_MEASURE_INTERVAL) {
+			adc_interval = 0;
+			adc_value = read_bat();
+			if(adc_value < 3900) // -> 3,10 Volt @ 10k || 10k
+			{
+				delay_ms(10000);
+			}
+		}
 	
 	}
 }
@@ -280,12 +312,14 @@ void motor_program(void)
 void calibrate_program(void)
 {
 	
-	vector min_v = {32767.0, 32767.0, 32767.0};
-	vector max_v = {-32768.0, -32768.0, -32768.0};
+	vector_f min_v = {32767.0, 32767.0, 32767.0};
+	vector_f max_v = {-32768.0, -32768.0, -32768.0};
+		
+	vector_f magData = {0.0, 0.0, 0.0};
 	
 	while(1) {
 		delay_ms(10);
-		if(LSM303_read() == 0x00) {
+		if(LSM303_read_mag(&magData) == 0x00) {
 			delay_ms(10);
 		}
 		
@@ -306,13 +340,19 @@ void test_program(void)
 {
 	float angle= 0.0;
 	
+	vector_f magData = {0.0, 0.0, 0.0};;
+	vector_f accelData = {0.0, 0.0, 0.0};;
+	
 	while(1) {
 		delay_ms(10);
-		if(LSM303_read() == 0x00) {
+		if(LSM303_read_accel(&accelData) == 0x00) {
+			delay_ms(10);
+		}
+		if(LSM303_read_accel(&magData) == 0x00) {
 			delay_ms(10);
 		}
 		
-		angle = heading();
+		angle = heading(&magData, &accelData);
 		
 		gpio_toggle_pin(LED_GREEN_O);
 		

@@ -60,12 +60,14 @@
 #define LSM303_REGISTER_ACT_THS					0x3E
 #define LSM303_REGISTER_ACT_DUR					0x3F
 
-#define TWI_MASTER_PORT		PORTC
-#define TWI_MASTER			TWIC
-#define TWI_SPEED			400000
 
-vector m_min = {-2279, -2937, -2880};
-vector m_max = { 1684, 2507, 2443};
+/// I2C options ///
+#define TWI_MASTER_PORT							PORTC
+#define TWI_MASTER								TWIC
+#define TWI_SPEED								400000
+
+vector_f m_min = {-2279, -2937, -2880};
+vector_f m_max = { 1684, 2507, 2443};
 
 //default values -> no calibration
 //vector m_min = {-32767.0, -32767.0, -32767.0};
@@ -73,9 +75,9 @@ vector m_max = { 1684, 2507, 2443};
 
 void LSM303_write8(uint8_t reg, uint8_t value);
 uint8_t LSM303_read8(uint8_t reg);
-void vector_normalize(vector *a);
-void vector_cross(const vector *a, const vector *b, vector *out);
-float vector_dot(const vector *a, const vector *b);
+void vector_normalize(vector_f *a);
+void vector_cross(const vector_f *a, const vector_f *b, vector_f *out);
+float vector_dot(const vector_f *a, const vector_f *b);
 
 uint8_t LSM303_init(void)
 {
@@ -91,6 +93,17 @@ uint8_t LSM303_init(void)
 	twi_master_init(&TWI_MASTER, &m_options);
 	twi_master_enable(&TWI_MASTER);
 	
+	LSM303_writestartupsettings();
+	
+	if(LSM303_ID ==  LSM303_read8(LSM303_REGISTER_WHO_AM_I)) {
+		return true;
+	}
+	
+	return false;
+}
+
+void LSM303_writestartupsettings(void)
+{
 	// Enable the accelerometer
 	LSM303_write8(LSM303_REGISTER_CTRL2, 0x00);
 		
@@ -103,15 +116,9 @@ uint8_t LSM303_init(void)
 	LSM303_write8(LSM303_REGISTER_CTRL5, 0x64);
 	LSM303_write8(LSM303_REGISTER_CTRL6, 0x20);
 	LSM303_write8(LSM303_REGISTER_CTRL7, 0x00);
-	
-	if(LSM303_ID ==  LSM303_read8(LSM303_REGISTER_WHO_AM_I)) {
-		return true;
-	}
-	
-	return false;
 }
 
-uint8_t LSM303_read(void) 
+uint8_t LSM303_read_accel(vector_f *accelData) 
 {
 	
 	uint8_t buffer[7];
@@ -140,29 +147,45 @@ uint8_t LSM303_read(void)
 	int16_t zhi = buffer[5];
 
 	// Shift values to create properly formed integer (low byte first)
-	accelData.x = (float)((xlo | (xhi << 8)) >> 4);
-	accelData.y = (float)((ylo | (yhi << 8)) >> 4);
-	accelData.z = (float)((zlo | (zhi << 8)) >> 4);
+	accelData->x = (float)((xlo | (xhi << 8)) >> 4);
+	accelData->y = (float)((ylo | (yhi << 8)) >> 4);
+	accelData->z = (float)((zlo | (zhi << 8)) >> 4);
+	
+	return 1;
+}
 
-	// Read the magnetometer
-	packet.addr[0] = LSM303_REGISTER_OUT_X_L_M | 0x80;
+// Read the magnetometer
+uint8_t LSM303_read_mag(vector_f *magData) 
+{
+	uint8_t buffer[7];
+		
+	// Package to send
+	twi_package_t packet;
+	//address or command
+	packet.addr_length	=	1;
+	packet.addr[0]		=	LSM303_REGISTER_OUT_X_L_M | 0x80;
+	packet.chip			=	LSM303_ADDRESS;
+	packet.buffer		=	(void *)buffer;
+	packet.length		=	6;
+	// Wait if bus is busy
+	packet.no_wait     =	false;
 
 	if(twi_master_read(&TWI_MASTER, &packet)) {
 		return 0x00;
 	}
 	
-	xlo = buffer[0];
-	xhi = buffer[1];
-	ylo = buffer[2];
-	yhi = buffer[3]; 
-	zlo = buffer[4];
-	zhi = buffer[5];
+	int16_t xlo = buffer[0];
+	int16_t xhi = buffer[1];
+	int16_t ylo = buffer[2];
+	int16_t yhi = buffer[3];
+	int16_t zlo = buffer[4];
+	int16_t zhi = buffer[5];
 
 	// Shift values to create properly formed integer (low byte first)
-	magData.x = (float)(xlo | (xhi << 8));
-	magData.y = (float)(ylo | (yhi << 8));
-	magData.z = (float)(zlo | (zhi << 8));
-	
+	magData->x = (float)(xlo | (xhi << 8));
+	magData->y = (float)(ylo | (yhi << 8));
+	magData->z = (float)(zlo | (zhi << 8));
+		
 	return 1;
 }
 
@@ -211,10 +234,10 @@ uint8_t LSM303_read8(uint8_t reg)
   	return buffer[0];
 }
 
-float heading(void)
+float heading(const vector_f *magData,const vector_f *accelData)
 {
-	vector from = { 1.0, 0.0, 0.0};
-    vector temp_m = {magData.x, magData.y, magData.z};
+	vector_f from = { 1.0, 0.0, 0.0};
+    vector_f temp_m = {magData->x, magData->y, magData->z};
 
     // subtract offset (average of min and max) from magnetometer readings
     temp_m.x -= ((int32_t)m_min.x + m_max.x) / 2;
@@ -222,11 +245,11 @@ float heading(void)
     temp_m.z -= ((int32_t)m_min.z + m_max.z) / 2;
 
     // compute E and N
-    vector E;
-    vector N;
-    vector_cross(&temp_m, &accelData, &E);
+    vector_f E;
+    vector_f N;
+    vector_cross(&temp_m, accelData, &E);
     vector_normalize(&E);
-    vector_cross(&accelData, &E, &N);
+    vector_cross(accelData, &E, &N);
     vector_normalize(&N);
 
     // compute heading
@@ -235,7 +258,7 @@ float heading(void)
     return heading_f;
 }
 
-void vector_normalize(vector *a)
+void vector_normalize(vector_f *a)
 {
 	float mag = sqrt(vector_dot(a, a));
 	a->x /= mag;
@@ -243,14 +266,14 @@ void vector_normalize(vector *a)
 	a->z /= mag;
 }
 
-void vector_cross(const vector *a , const vector *b, vector *out)
+void vector_cross(const vector_f *a , const vector_f *b, vector_f *out)
 {
 	out->x = (a->y * b->z) - (a->z * b->y);
 	out->y = (a->z * b->x) - (a->x * b->z);
 	out->z = (a->x * b->y) - (a->y * b->x);
 }
 
-float vector_dot(const vector *a, const vector *b)
+float vector_dot(const vector_f *a, const vector_f *b)
 {
 	return (a->x * b->x) + (a->y * b->y) + (a->z * b->z);
 }
