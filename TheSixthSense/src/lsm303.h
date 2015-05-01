@@ -3,6 +3,25 @@
  *
  * Created: 19.04.2015 12:36:35
  *  Author: Sebastian Foerster
+ 
+ TheSixthSense C (Atmel Studio 6.2) Source Code with ASF lib from Atmel
+ Copyright (C) Atmel Corporation
+ Copyright (C) Sebastian Foerster
+
+ This program is free software; you can redistribute it and/or
+ modify it under the terms of the GNU General Public License
+ as published by the Free Software Foundation; either version 2
+ of the License, or (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License
+ along with this program; if not, write to the Free Software
+ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ 
  */ 
 
 
@@ -36,6 +55,8 @@ vector_f m_min;
 vector_f m_max;
 
 extern uint8_t LSM303_init(void);
+extern uint8_t LSM303_new_accel_data(void);
+extern uint8_t LSM303_new_mag_data(void);
 extern uint8_t LSM303_read_mag(vector_f *magData);
 extern uint8_t LSM303_read_accel(vector_f *accelData);
 extern void LSM303_writestartupsettings(void);

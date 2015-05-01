@@ -34,6 +34,25 @@
  *
  * Created: 19.04.2015 12:36:47
  *  Author: Sebastian Foerster
+ 
+ TheSixthSense C (Atmel Studio 6.2) Source Code with ASF lib from Atmel
+ Copyright (C) Atmel Corporation
+ Copyright (C) Sebastian Foerster
+
+ This program is free software; you can redistribute it and/or
+ modify it under the terms of the GNU General Public License
+ as published by the Free Software Foundation; either version 2
+ of the License, or (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License
+ along with this program; if not, write to the Free Software
+ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ 
  */ 
 #include <asf.h>
 #include <math.h>
@@ -224,20 +243,54 @@ void motor_program(void)
 	//offset if needed
 	float offset_ang = 0.0;
 	
-	vector_f magData = {0.0, 0.0, 0.0};;
-	vector_f accelData = {0.0, 0.0, 0.0};;
+	vector_f magData = {0.0, 0.0, 0.0};
+	vector_f accelData = {0.0, 0.0, 0.0};
 	
 	while(1) {
 
-		delay_ms(1000);
-		if(LSM303_read_accel(&accelData) == 0x00) {
-			delay_ms(10);
+		//reset vector
+		accelData.x = 0.0;
+		accelData.y = 0.0;
+		accelData.z = 0.0;
+		
+		uint8_t counter = 0;
+		
+		//average/filter the accel reading, cause walking and other activity is changing the gravity vector
+		for(uint8_t i = 0; i<(50+1); i++) {
+			vector_f accelData_temp;
+			
+			//wait for new accel_data
+			while(!LSM303_new_accel_data()) {}
+			
+			//read data
+			if(LSM303_read_accel(&accelData_temp) == 0x00) {
+				//error condition?
+				delay_ms(10);
+			} else {
+			
+				//discard first data (i==0), maybe its an very old one?
+				if(i) {
+					accelData.x += accelData_temp.x;
+					accelData.y += accelData_temp.y;
+					accelData.z += accelData_temp.z;
+					counter++;
+				}
+			}
 		}
+		
+		//avr end
+		accelData.x /= (float)counter;
+		accelData.y /= (float)counter;
+		accelData.z /= (float)counter;
+		
+		//read from mag sensor
 		if(LSM303_read_mag(&magData) == 0x00) {
 			delay_ms(10);
 		}
 			
 		//angle = mag_direction();
+		
+		//calc tilt compensated compass reading
 		angle = heading(&magData,&accelData);
 
 		gpio_set_pin_high(LED_GREEN_O);
@@ -291,7 +344,21 @@ void motor_program(void)
 		write_MOT4(TIMER_RESOLUTION);
 		
 		//stop program if USB is pluged in for charging
-		while(gpio_pin_is_high(USB_DETECT_I)) { }
+		while(gpio_pin_is_high(USB_DETECT_I)) 
+		{
+			//blink LED in charge mode
+			gpio_toggle_pin(LED_GREEN_O);
+			delay_ms(300);
+			
+			//because of back current from the charger IC there is a little voltage left on the input, even the usb voltage is disconnected.
+			//pull the input low for a short time, to trigger the schmitt-trigger input to low
+			ioport_configure_pin(USB_DETECT_I, IOPORT_DIR_OUTPUT | IOPORT_INIT_LOW);
+			delay_ms(2);
+			ioport_configure_pin(USB_DETECT_I, IOPORT_DIR_INPUT | IOPORT_MODE_PULLDOWN);
+			delay_ms(10);
+		}
+		
+		gpio_set_pin_low(LED_GREEN_O);
 			
 		uint16_t adc_value = 0;
 			
@@ -300,7 +367,8 @@ void motor_program(void)
 			adc_value = read_bat();
 			if(adc_value < 3900) // -> 3,10 Volt @ 10k || 10k
 			{
-				delay_ms(10000);
+				//for the first tests, use motors 
+				delay_ms(4000);
 			}
 		}
 	

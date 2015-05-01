@@ -3,6 +3,25 @@
  *
  * Created: 19.04.2015 12:36:47
  *  Author: Sebastian Foerster
+ 
+ TheSixthSense C (Atmel Studio 6.2) Source Code with ASF lib from Atmel
+ Copyright (C) Atmel Corporation
+ Copyright (C) Sebastian Foerster
+
+ This program is free software; you can redistribute it and/or
+ modify it under the terms of the GNU General Public License
+ as published by the Free Software Foundation; either version 2
+ of the License, or (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License
+ along with this program; if not, write to the Free Software
+ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ 
  */ 
 #include "LSM303.h"
 #include <math.h>
@@ -104,18 +123,40 @@ uint8_t LSM303_init(void)
 
 void LSM303_writestartupsettings(void)
 {
-	// Enable the accelerometer
-	LSM303_write8(LSM303_REGISTER_CTRL2, 0x00);
+
 		
 	// Enable the accelerometer
-	//LSM303_write8(LSM303_REGISTER_CTRL1, 0b00011111);
-	LSM303_write8(LSM303_REGISTER_CTRL1, 0x57);
+	//set lowpass filter to 50 Hz, set update rate to 50 Hz
+	LSM303_write8(LSM303_REGISTER_CTRL2, 0b11000000);
+	LSM303_write8(LSM303_REGISTER_CTRL1, 0b01010111);
 
+	
 	// Enable the magnetometer
-	//LSM303_write8(LSM303_REGISTER_CTRL5, 0b01100000);
-	LSM303_write8(LSM303_REGISTER_CTRL5, 0x64);
+	//no filter, 4 gauss max
+	LSM303_write8(LSM303_REGISTER_CTRL5, 0b01100000);
 	LSM303_write8(LSM303_REGISTER_CTRL6, 0x20);
-	LSM303_write8(LSM303_REGISTER_CTRL7, 0x00);
+	//force low power mode with bit 3=1 -> 3,125 Hz
+	LSM303_write8(LSM303_REGISTER_CTRL7, 0b00000100);
+}
+
+uint8_t LSM303_new_accel_data(void)
+{
+	if(LSM303_read8(LSM303_REGISTER_STATUS_A) & (1<<3))
+	{
+		return true;
+	}
+	
+	return false;
+} 
+
+uint8_t LSM303_new_mag_data(void)
+{
+	if(LSM303_read8(LSM303_REGISTER_STATUS_M) & (1<<3))
+	{
+		return true;
+	}
+	
+	return false;
 }
 
 uint8_t LSM303_read_accel(vector_f *accelData) 
