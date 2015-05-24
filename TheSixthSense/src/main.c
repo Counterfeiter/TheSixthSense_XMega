@@ -240,7 +240,7 @@ void motor_program(void)
 	uint16_t adc_interval = 0;
 	float angle= 0.0;
 	
-	//offset if needed
+	//offset if needed (only positive allowed)
 	float offset_ang = 0.0;
 	
 	vector_f magData = {0.0, 0.0, 0.0};
@@ -297,11 +297,12 @@ void motor_program(void)
 		
 		if(angle > 360.0) angle = 360.0;
 		
-		angle = 360.0 - angle;
-		
 		//add offset position on the leg position
 		angle += offset_ang;
 		if(angle > 360.0) angle -= 360.0;
+		
+		//turn the direction, uncomment if motors are not in the same direction like the pcb measure
+		angle = 360.0 - angle;
 		
 		float sector = angle / 90.0;
 		
