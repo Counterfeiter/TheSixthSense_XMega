@@ -59,32 +59,27 @@
 #include "akku_adc.h"
 #include "lsm303.h"
 
+#define MOTOR_NUM				8
+
+#define MAX_MOTOR_FORCE			19
+
 #define PI 3.14159265
 
-#define TIMER1				TCC5
-#define TIMER2				TCC4
+#define TIMER_RESOLUTION		500 // 250 HZ at 2 MHz and div = 8
 
-#define TC_MOT1				TC45_CCB
-#define TC_MOT2				TC45_CCA
-#define TC_MOT3				TC45_CCD
-#define TC_MOT4				TC45_CCC
+volatile uint8_t motor_soft_bam[MOTOR_NUM] = {0};
 
-#define TIMER_RESOLUTION		500 // x * 90 < 2^16 !!!
-
-#define TIMER_RESOLUTION_MAX	300 //don't drive the motors with the highest current (its IMO to strong)
-
-#define write_MOT1(x)			tc45_write_cc_buffer(&TIMER1, TC45_CCB, x)
-#define write_MOT2(x)			tc45_write_cc_buffer(&TIMER1, TC45_CCA, x)
-#define write_MOT3(x)			tc45_write_cc_buffer(&TIMER2, TC45_CCD, x)
-#define write_MOT4(x)			tc45_write_cc_buffer(&TIMER2, TC45_CCC, x)
+#define SET_MOTOR_BAM(mot,bam)	{motor_soft_bam[mot-1]=bam;}
 
 void test_program(void);
-void motor_program(void);
+void main_program(void);
 void init_pwm(void);
 void motor_test(void);
 void calibrate_program(void);
 
 float mag_direction(const vector_f *magData);
+
+
 
 //you can use also a non calibartet and non accel. version, with this easy equation
 float mag_direction(const vector_f *magData)
@@ -92,56 +87,131 @@ float mag_direction(const vector_f *magData)
 	return ((atan2 (magData->x,magData->z) * 180.0 / PI) + 180.0);
 }
 
+void soft_pwm_process(uint8_t bitmask)
+{
+	//error if adding motors without changing source
+	#if(MOTOR_NUM != 8)
+		#error (add more motors here)
+	#endif
+	
+	if(motor_soft_bam[0] & bitmask) {
+		gpio_set_pin_high(M1_O);
+	} else {
+		gpio_set_pin_low(M1_O);
+	}
+	if(motor_soft_bam[1] & bitmask) {
+		gpio_set_pin_high(M2_O);
+	} else {
+		gpio_set_pin_low(M2_O);
+	}
+	if(motor_soft_bam[2] & bitmask) {
+		gpio_set_pin_high(M3_O);
+	} else {
+		gpio_set_pin_low(M3_O);
+	}
+	if(motor_soft_bam[3] & bitmask) {
+		gpio_set_pin_high(M4_O);
+	} else {
+		gpio_set_pin_low(M4_O);
+	}
+	if(motor_soft_bam[4] & bitmask) {
+		gpio_set_pin_high(M5_O);
+	} else {
+		gpio_set_pin_low(M5_O);
+	}
+	if(motor_soft_bam[5] & bitmask) {
+		gpio_set_pin_high(M6_O);
+	} else {
+		gpio_set_pin_low(M6_O);
+	}
+	if(motor_soft_bam[6] & bitmask) {
+		gpio_set_pin_high(M7_O);
+	} else {
+		gpio_set_pin_low(M7_O);
+	}
+	if(motor_soft_bam[7] & bitmask) {
+		gpio_set_pin_high(M8_O);
+	} else {
+		gpio_set_pin_low(M8_O);
+	}
+}
 
-//later use? Test Hz
 static void ovf_interrupt_callback(void)
 {
 	//gpio_toggle_pin(LED_GREEN_O);
-	tc45_clear_overflow(&TIMER2);
+	soft_pwm_process(0x01);
+	tc45_clear_overflow(&TCC4);
 }
 
+static void cca_interrupt_callback(void)
+{
+	//gpio_toggle_pin(LED_GREEN_O);
+	soft_pwm_process(0x02);
+	tc45_clear_cc_interrupt(&TCC4, TC45_CCA);
+}
+
+static void ccb_interrupt_callback(void)
+{
+	//gpio_toggle_pin(LED_GREEN_O);
+	soft_pwm_process(0x04);
+	tc45_clear_cc_interrupt(&TCC4, TC45_CCB);
+}
+
+static void ccc_interrupt_callback(void)
+{
+	//gpio_toggle_pin(LED_GREEN_O);
+	soft_pwm_process(0x08);
+	tc45_clear_cc_interrupt(&TCC4, TC45_CCC);
+}
+
+static void ccd_interrupt_callback(void)
+{
+	//gpio_toggle_pin(LED_GREEN_O);
+	soft_pwm_process(0x10);
+	tc45_clear_cc_interrupt(&TCC4, TC45_CCD);
+}
 
 //init PWM of two timers to supply 4 motors with 250 Hz
 void init_pwm(void)
 {
 	
 	/* Unmask clock for ... */
-	tc45_enable(&TIMER1);
-	tc45_enable(&TIMER2);
+	tc45_enable(&TCC4);
 
 	/* Configure TC in normal mode */
-	tc45_set_wgm(&TIMER1, TC45_WG_DS_T);
-	tc45_set_wgm(&TIMER2, TC45_WG_DS_T);
+	tc45_set_wgm(&TCC4, TC45_WG_NORMAL);
 
 	/* Configure period equal to resolution to obtain 250Hz */
-	tc45_write_period(&TIMER1, TIMER_RESOLUTION);
-	tc45_write_period(&TIMER2, TIMER_RESOLUTION);
+	tc45_write_period(&TCC4, TIMER_RESOLUTION);
 
-	/* Enable channels */
-	tc45_enable_cc_channels(&TIMER1, TC45_CCACOMP);
-	tc45_enable_cc_channels(&TIMER1, TC45_CCBCOMP);
-	tc45_enable_cc_channels(&TIMER2, TC45_CCCCOMP);
-	tc45_enable_cc_channels(&TIMER2, TC45_CCDCOMP);
+	//no cc outputs 
+	TCC4.CTRLE = 0;
 	
-	
-	//channels inverted... full gain => motors off
-	write_MOT1(TIMER_RESOLUTION);
-	write_MOT2(TIMER_RESOLUTION);
-	write_MOT3(TIMER_RESOLUTION);
-	write_MOT4(TIMER_RESOLUTION);
+	//bam timing -> 32 Bit possible with ovf vector
+	tc45_write_cc_buffer(&TCC4, TC45_CCA, TIMER_RESOLUTION >> 4);
+	tc45_write_cc_buffer(&TCC4, TC45_CCB, TIMER_RESOLUTION >> 3);
+	tc45_write_cc_buffer(&TCC4, TC45_CCC, TIMER_RESOLUTION >> 2);
+	tc45_write_cc_buffer(&TCC4, TC45_CCD, TIMER_RESOLUTION >> 1);
 
-	tc45_set_overflow_interrupt_callback(&TIMER2, ovf_interrupt_callback);
+	tc45_set_overflow_interrupt_callback(&TCC4, ovf_interrupt_callback);
+	tc45_set_cca_interrupt_callback(&TCC4, cca_interrupt_callback);
+	tc45_set_ccb_interrupt_callback(&TCC4, ccb_interrupt_callback);
+	tc45_set_ccc_interrupt_callback(&TCC4, ccc_interrupt_callback);
+	tc45_set_ccd_interrupt_callback(&TCC4, ccd_interrupt_callback);
 
 	/*
 	 * Enable TC interrupts
 	 */
-	tc45_set_overflow_interrupt_level(&TIMER2, TC45_INT_LVL_LO);
+	tc45_set_overflow_interrupt_level(&TCC4, TC45_INT_LVL_LO);
+	tc45_set_cca_interrupt_level(&TCC4, TC45_INT_LVL_LO);
+	tc45_set_ccb_interrupt_level(&TCC4, TC45_INT_LVL_LO);
+	tc45_set_ccc_interrupt_level(&TCC4, TC45_INT_LVL_LO);
+	tc45_set_ccd_interrupt_level(&TCC4, TC45_INT_LVL_LO);
 
 	/*
 	 * Run 
 	 */
-	tc45_write_clock_source(&TIMER1, TC45_CLKSEL_DIV8_gc);
-	tc45_write_clock_source(&TIMER2, TC45_CLKSEL_DIV8_gc);
+	tc45_write_clock_source(&TCC4, TC45_CLKSEL_DIV8_gc);
 }
 
 
@@ -163,7 +233,7 @@ int main (void)
 	
 	uint8_t iam = LSM303_init();
 
-	motor_program();
+	main_program();
 	//calibrate_program();
 	//test_program();
 	//motor_test();
@@ -173,18 +243,12 @@ int main (void)
 //then rotate the angle value an bring all motors to spin at the correct values
 void motor_test(void)
 {
-	write_MOT1(0);
-	delay_ms(1000);
-	write_MOT1(TIMER_RESOLUTION);
-	write_MOT2(0);
-	delay_ms(1000);
-	write_MOT2(TIMER_RESOLUTION);
-	write_MOT3(0);
-	delay_ms(1000);
-	write_MOT3(TIMER_RESOLUTION);
-	write_MOT4(0);
-	delay_ms(1000);
-	write_MOT4(TIMER_RESOLUTION);
+	//turn all motors individual on
+	for(uint8_t i = 0;i<sizeof(motor_soft_bam);i++) {
+		motor_soft_bam[i]=16;
+		delay_ms(1000);
+		motor_soft_bam[i]=0;
+	}
 	
 	float angle = 0.0;
 	
@@ -196,37 +260,20 @@ void motor_test(void)
 		
 		if(angle > 360.0) angle -= 360.0;
 		
-		float sector = angle / 90.0;
+		uint8_t sector = angle / (360.0 / MOTOR_NUM);
 		
-		uint16_t ang = (uint16_t)angle % 4;
+		uint16_t ang = (uint16_t)angle % MOTOR_NUM;
 		
-
-		//act with 2 from 4 motors at the same time
-		//but doesn't feel well... -> pwm not linear because of resonance frequenz of vibrators
-		//use 8 motors is a better solution
-		if(sector >= 0.0 && sector < 1.0) {
-			write_MOT1((TIMER_RESOLUTION - TIMER_RESOLUTION_MAX) + (ang*TIMER_RESOLUTION_MAX)/90);
-			write_MOT2(TIMER_RESOLUTION - (ang*TIMER_RESOLUTION_MAX)/90);
-			write_MOT3(TIMER_RESOLUTION);
-			write_MOT4(TIMER_RESOLUTION);
-		} 
-		else if(sector >= 1.0 && sector < 2.0) {
-			write_MOT1(TIMER_RESOLUTION);
-			write_MOT2((TIMER_RESOLUTION - TIMER_RESOLUTION_MAX) + (ang*TIMER_RESOLUTION_MAX)/90);
-			write_MOT3(TIMER_RESOLUTION - (ang*TIMER_RESOLUTION_MAX)/90);
-			write_MOT4(TIMER_RESOLUTION);
+		//stop all motors		
+		for(uint8_t i = 0;i<sizeof(motor_soft_bam);i++) {
+			motor_soft_bam[i]=0;
 		}
-		else if(sector >= 2.0 && sector < 3.0) {
-			write_MOT1(TIMER_RESOLUTION);
-			write_MOT2(TIMER_RESOLUTION);
-			write_MOT3((TIMER_RESOLUTION - TIMER_RESOLUTION_MAX) + (ang*TIMER_RESOLUTION_MAX)/90);
-			write_MOT4(TIMER_RESOLUTION - (ang*TIMER_RESOLUTION_MAX)/90);
-		}
-		else if(sector >= 3.0 && sector < 4.0) {
-			write_MOT1(TIMER_RESOLUTION - (ang*TIMER_RESOLUTION_MAX)/90);
-			write_MOT2(TIMER_RESOLUTION);
-			write_MOT3(TIMER_RESOLUTION);
-			write_MOT4((TIMER_RESOLUTION - TIMER_RESOLUTION_MAX) + (ang*TIMER_RESOLUTION_MAX)/90);
+		
+		//set one active...
+		if(sector < MOTOR_NUM) {
+			motor_soft_bam[sector] = 16;
+		} else {
+			gpio_toggle_pin(LED_GREEN_O);
 		}
 	}
 }
@@ -235,7 +282,7 @@ void motor_test(void)
 //normal operation program
 //wait a second, read the values start the correct motor(s) for 0,3s
 //flash short the green led
-void motor_program(void)
+void main_program(void)
 {
 	uint16_t adc_interval = 0;
 	float angle= 0.0;
@@ -304,45 +351,25 @@ void motor_program(void)
 		//turn the direction, uncomment if motors are not in the same direction like the pcb measure
 		angle = 360.0 - angle;
 		
-		float sector = angle / 90.0;
+		uint8_t sector = angle / (360.0 / MOTOR_NUM);
 		
-		uint16_t ang = (uint16_t)angle % 4;
+		uint16_t ang = (uint16_t)angle % MOTOR_NUM;
 		
-		//get correct sector
-		if(sector >= 0.0 && sector < 1.0) {
-			write_MOT1((TIMER_RESOLUTION - TIMER_RESOLUTION_MAX) + (ang*TIMER_RESOLUTION_MAX)/90);
-			write_MOT2(TIMER_RESOLUTION - (ang*TIMER_RESOLUTION_MAX)/90);
-			write_MOT3(TIMER_RESOLUTION);
-			write_MOT4(TIMER_RESOLUTION);
-		}
-		else if(sector >= 1.0 && sector < 2.0) {
-			write_MOT1(TIMER_RESOLUTION);
-			write_MOT2((TIMER_RESOLUTION - TIMER_RESOLUTION_MAX) + (ang*TIMER_RESOLUTION_MAX)/90);
-			write_MOT3(TIMER_RESOLUTION - (ang*TIMER_RESOLUTION_MAX)/90);
-			write_MOT4(TIMER_RESOLUTION);
-		}
-		else if(sector >= 2.0 && sector < 3.0) {
-			write_MOT1(TIMER_RESOLUTION);
-			write_MOT2(TIMER_RESOLUTION);
-			write_MOT3((TIMER_RESOLUTION - TIMER_RESOLUTION_MAX) + (ang*TIMER_RESOLUTION_MAX)/90);
-			write_MOT4(TIMER_RESOLUTION - (ang*TIMER_RESOLUTION_MAX)/90);
-		}
-		else if(sector >= 3.0 && sector < 4.0) {
-			write_MOT1(TIMER_RESOLUTION - (ang*TIMER_RESOLUTION_MAX)/90);
-			write_MOT2(TIMER_RESOLUTION);
-			write_MOT3(TIMER_RESOLUTION);
-			write_MOT4((TIMER_RESOLUTION - TIMER_RESOLUTION_MAX) + (ang*TIMER_RESOLUTION_MAX)/90);
+		//get correct motor
+		if(sector < MOTOR_NUM) {
+			motor_soft_bam[sector] = MAX_MOTOR_FORCE;
+		} else {
+			//gpio_toggle_pin(LED_GREEN_O);
 		}
 		
 		gpio_set_pin_low(LED_GREEN_O);
 		
 		delay_ms(300);
 		
-		//all motors off
-		write_MOT1(TIMER_RESOLUTION);
-		write_MOT2(TIMER_RESOLUTION);
-		write_MOT3(TIMER_RESOLUTION);
-		write_MOT4(TIMER_RESOLUTION);
+		//stop all motors
+		for(uint8_t i = 0;i<sizeof(motor_soft_bam);i++) {
+			motor_soft_bam[i]=0;
+		}
 		
 		//stop program if USB is pluged in for charging
 		while(gpio_pin_is_high(USB_DETECT_I)) 
