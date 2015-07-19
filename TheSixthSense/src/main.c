@@ -73,7 +73,7 @@ volatile uint8_t motor_soft_bam[MOTOR_NUM] = {0};
 
 void test_program(void);
 void main_program(void);
-void init_pwm(void);
+void init_bam(void);
 void motor_test(void);
 void calibrate_program(void);
 
@@ -87,7 +87,7 @@ float mag_direction(const vector_f *magData)
 	return ((atan2 (magData->x,magData->z) * 180.0 / PI) + 180.0);
 }
 
-void soft_pwm_process(uint8_t bitmask)
+void soft_bam_process(uint8_t bitmask)
 {
 	//error if adding motors without changing source
 	#if(MOTOR_NUM != 8)
@@ -139,40 +139,40 @@ void soft_pwm_process(uint8_t bitmask)
 static void ovf_interrupt_callback(void)
 {
 	//gpio_toggle_pin(LED_GREEN_O);
-	soft_pwm_process(0x01);
+	soft_bam_process(0x01);
 	tc45_clear_overflow(&TCC4);
 }
 
 static void cca_interrupt_callback(void)
 {
 	//gpio_toggle_pin(LED_GREEN_O);
-	soft_pwm_process(0x02);
+	soft_bam_process(0x02);
 	tc45_clear_cc_interrupt(&TCC4, TC45_CCA);
 }
 
 static void ccb_interrupt_callback(void)
 {
 	//gpio_toggle_pin(LED_GREEN_O);
-	soft_pwm_process(0x04);
+	soft_bam_process(0x04);
 	tc45_clear_cc_interrupt(&TCC4, TC45_CCB);
 }
 
 static void ccc_interrupt_callback(void)
 {
 	//gpio_toggle_pin(LED_GREEN_O);
-	soft_pwm_process(0x08);
+	soft_bam_process(0x08);
 	tc45_clear_cc_interrupt(&TCC4, TC45_CCC);
 }
 
 static void ccd_interrupt_callback(void)
 {
 	//gpio_toggle_pin(LED_GREEN_O);
-	soft_pwm_process(0x10);
+	soft_bam_process(0x10);
 	tc45_clear_cc_interrupt(&TCC4, TC45_CCD);
 }
 
-//init PWM of two timers to supply 4 motors with 250 Hz
-void init_pwm(void)
+//init BAM with one timer to supply 8 motors with 250 Hz
+void init_bam(void)
 {
 	
 	/* Unmask clock for ... */
@@ -187,7 +187,7 @@ void init_pwm(void)
 	//no cc outputs 
 	TCC4.CTRLE = 0;
 	
-	//bam timing -> 32 Bit possible with ovf vector
+	//bam timing -> 5 Bit possible with ovf vector
 	tc45_write_cc_buffer(&TCC4, TC45_CCA, TIMER_RESOLUTION >> 4);
 	tc45_write_cc_buffer(&TCC4, TC45_CCB, TIMER_RESOLUTION >> 3);
 	tc45_write_cc_buffer(&TCC4, TC45_CCC, TIMER_RESOLUTION >> 2);
@@ -227,7 +227,7 @@ int main (void)
 
 	board_init();
 	
-	init_pwm();
+	init_bam();
 	
 	init_adc();
 	
