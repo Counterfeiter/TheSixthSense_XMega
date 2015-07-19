@@ -85,13 +85,6 @@
 #define TWI_MASTER								TWIC
 #define TWI_SPEED								400000
 
-vector_f m_min = {-2279, -2937, -2880};
-vector_f m_max = { 1684, 2507, 2443};
-
-//default values -> no calibration
-//vector m_min = {-32767.0, -32767.0, -32767.0};
-//vector m_max = {+32767.0, +32767.0, +32767.0};
-
 void LSM303_write8(uint8_t reg, uint8_t value);
 uint8_t LSM303_read8(uint8_t reg);
 void vector_normalize(vector_f *a);
@@ -281,9 +274,9 @@ float heading(const vector_f *magData,const vector_f *accelData)
     vector_f temp_m = {magData->x, magData->y, magData->z};
 
     // subtract offset (average of min and max) from magnetometer readings
-    temp_m.x -= ((int32_t)m_min.x + m_max.x) / 2;
-    temp_m.y -= ((int32_t)m_min.y + m_max.y) / 2;
-    temp_m.z -= ((int32_t)m_min.z + m_max.z) / 2;
+    temp_m.x -= ((int32_t)mag_cali.m_min.x + mag_cali.m_max.x) / 2;
+    temp_m.y -= ((int32_t)mag_cali.m_min.y + mag_cali.m_max.y) / 2;
+    temp_m.z -= ((int32_t)mag_cali.m_min.z + mag_cali.m_max.z) / 2;
 
     // compute E and N
     vector_f E;

@@ -18,8 +18,10 @@ void board_init(void)
 	
 	ioport_configure_pin(LED_GREEN_O, IOPORT_DIR_OUTPUT | IOPORT_INIT_LOW);
 	
-	ioport_configure_pin(USB_DETECT_I, IOPORT_DIR_INPUT | IOPORT_MODE_PULLDOWN);
-	ioport_configure_pin(CHARGE_DETECT_I, IOPORT_DIR_INPUT | IOPORT_MODE_PULLDOWN);
+	ioport_configure_pin(USB_DETECT_I, IOPORT_DIR_INPUT | IOPORT_PULL_DOWN);
+	ioport_configure_pin(CHARGE_DETECT_I, IOPORT_DIR_INPUT | IOPORT_PULL_DOWN);
+	
+	ioport_configure_pin(PUSH_BUTTON_I, IOPORT_DIR_INPUT | IOPORT_PULL_UP);
 	
 	ioport_configure_pin(VBAT_MEASURE_O, IOPORT_DIR_OUTPUT | IOPORT_INIT_LOW);
 	

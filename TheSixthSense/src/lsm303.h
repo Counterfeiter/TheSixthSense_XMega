@@ -51,8 +51,12 @@ typedef struct vector_s32
 	int32_t z;
 } vector_32;
 
-vector_f m_min;
-vector_f m_max;
+struct mag_cal_data {
+	vector_f m_min;
+	vector_f m_max;
+};
+
+struct mag_cal_data mag_cali;
 
 extern uint8_t LSM303_init(void);
 extern uint8_t LSM303_new_accel_data(void);

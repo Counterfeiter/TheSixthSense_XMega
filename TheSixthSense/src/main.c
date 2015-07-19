@@ -27,8 +27,8 @@
  */
 
 
-///////////////////////////////////////////// Source Version 1.1 //////////////////////////////////
-////////////////////////////////////// Works with TheSixthSense PCB V1.2 ///////////////////////////
+///////////////////////////////////////////// Source Version 1.2 //////////////////////////////////
+////////////////////////////////////// Works with TheSixthSense PCB V1.3 ///////////////////////////
 
 /*
  *
@@ -56,6 +56,7 @@
  */ 
 #include <asf.h>
 #include <math.h>
+#include "string.h"
 #include "akku_adc.h"
 #include "lsm303.h"
 
@@ -63,6 +64,8 @@
 
 #define MAX_MOTOR_FORCE			19
 
+#define CALI_PROGRAMM_ENTER_CNT	3	
+	
 #define PI 3.14159265
 
 #define TIMER_RESOLUTION		500 // 250 HZ at 2 MHz and div = 8
@@ -76,10 +79,9 @@ void main_program(void);
 void init_bam(void);
 void motor_test(void);
 void calibrate_program(void);
+void soft_bam_process(uint8_t bitmask);
 
 float mag_direction(const vector_f *magData);
-
-
 
 //you can use also a non calibartet and non accel. version, with this easy equation
 float mag_direction(const vector_f *magData)
@@ -232,9 +234,25 @@ int main (void)
 	init_adc();
 	
 	uint8_t iam = LSM303_init();
+	
+	//wait for stable vcc
+	delay_ms(10);
+		
+	//read mag calibration data
+	nvm_eeprom_read_buffer(1 * EEPROM_PAGE_SIZE,&mag_cali,sizeof(mag_cali));
+		
+	//cali data available or is it fresh eeprom?
+	if(isnan(mag_cali.m_min.x)) {
+		mag_cali.m_min.x = -32768.0;
+		mag_cali.m_min.y = -32768.0;
+		mag_cali.m_min.z = -32768.0;
+			
+		mag_cali.m_max.x = 32767.0;
+		mag_cali.m_max.y = 32767.0;
+		mag_cali.m_max.z = 32767.0;
+	}
 
 	main_program();
-	//calibrate_program();
 	//test_program();
 	//motor_test();
 }
@@ -292,8 +310,23 @@ void main_program(void)
 	
 	vector_f magData = {0.0, 0.0, 0.0};
 	vector_f accelData = {0.0, 0.0, 0.0};
+		
+	uint8_t cnt_pushbutton = 0;
 	
 	while(1) {
+		
+		//Test push button to enter the cali program
+		if(gpio_pin_is_low(PUSH_BUTTON_I)) {
+			if(cnt_pushbutton < 255) {
+				cnt_pushbutton++;
+			}
+		}
+		if(gpio_pin_is_high(PUSH_BUTTON_I)) {
+			if(cnt_pushbutton > CALI_PROGRAMM_ENTER_CNT) {
+				calibrate_program();
+			}
+			cnt_pushbutton = 0;
+		}
 
 		//reset vector
 		accelData.x = 0.0;
@@ -377,13 +410,6 @@ void main_program(void)
 			//blink LED in charge mode
 			gpio_toggle_pin(LED_GREEN_O);
 			delay_ms(300);
-			
-			//because of back current from the charger IC there is a little voltage left on the input, even the usb voltage is disconnected.
-			//pull the input low for a short time, to trigger the schmitt-trigger input to low
-			ioport_configure_pin(USB_DETECT_I, IOPORT_DIR_OUTPUT | IOPORT_INIT_LOW);
-			delay_ms(2);
-			ioport_configure_pin(USB_DETECT_I, IOPORT_DIR_INPUT | IOPORT_MODE_PULLDOWN);
-			delay_ms(10);
 		}
 		
 		gpio_set_pin_low(LED_GREEN_O);
@@ -403,8 +429,7 @@ void main_program(void)
 	}
 }
 
-//rotate the pcb in all directions, read the values with help of your PDI Debugger!
-//Enter the calibration values in lsm303.c!
+//rotate the pcb in all directions!!!
 void calibrate_program(void)
 {
 	
@@ -412,6 +437,10 @@ void calibrate_program(void)
 	vector_f max_v = {-32768.0, -32768.0, -32768.0};
 		
 	vector_f magData = {0.0, 0.0, 0.0};
+		
+	gpio_set_pin_high(LED_GREEN_O);
+	
+	delay_ms(500);
 	
 	while(1) {
 		delay_ms(10);
@@ -427,7 +456,21 @@ void calibrate_program(void)
 		if(max_v.y < magData.y)	max_v.y = magData.y;
 		if(max_v.z < magData.z)	max_v.z = magData.z;
 		
+		if(gpio_pin_is_low(PUSH_BUTTON_I)) {
+			break;
+		}
+		
 	}
+	
+	memcpy(&mag_cali.m_min,&min_v,sizeof(vector_f));
+	memcpy(&mag_cali.m_max,&max_v,sizeof(vector_f));
+	
+	//save new values to the eeprom
+	nvm_eeprom_flush_buffer();
+	nvm_eeprom_load_page_to_buffer((const uint8_t*)&mag_cali);
+	nvm_eeprom_atomic_write_page(1);
+	
+	gpio_set_pin_low(LED_GREEN_O);
 }
 
 //blink led if not pointed to the north (+- 10°)
@@ -444,7 +487,7 @@ void test_program(void)
 		if(LSM303_read_accel(&accelData) == 0x00) {
 			delay_ms(10);
 		}
-		if(LSM303_read_accel(&magData) == 0x00) {
+		if(LSM303_read_mag(&magData) == 0x00) {
 			delay_ms(10);
 		}
 		
