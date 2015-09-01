@@ -58,13 +58,14 @@ struct mag_cal_data {
 
 struct mag_cal_data mag_cali;
 
-extern uint8_t LSM303_init(void);
-extern uint8_t LSM303_new_accel_data(void);
-extern uint8_t LSM303_new_mag_data(void);
-extern uint8_t LSM303_read_mag(vector_f *magData);
-extern uint8_t LSM303_read_accel(vector_f *accelData);
-extern void LSM303_writestartupsettings(void);
-extern float heading(const vector_f *magData,const vector_f *accelData);
+extern uint8_t	LSM303_init(void);
+extern uint8_t	LSM303_new_accel_data(void);
+extern uint8_t	LSM303_new_mag_data(void);
+extern uint8_t	LSM303_read_mag(vector_f *magData);
+extern uint8_t	LSM303_read_accel(vector_f *accelData);
+extern void		LSM303_set_sleep(void);
+extern void		LSM303_writestartupsettings(void);
+extern float	heading(const vector_f *magData,const vector_f *accelData);
 
 
 #endif /* LSM303_H_ */

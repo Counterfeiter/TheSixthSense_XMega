@@ -132,6 +132,16 @@ void LSM303_writestartupsettings(void)
 	LSM303_write8(LSM303_REGISTER_CTRL7, 0b00000100);
 }
 
+void LSM303_set_sleep(void)
+{
+	// Disable the accelerometer
+	LSM303_write8(LSM303_REGISTER_CTRL1, 0x00);
+
+	// Disable the magnetometer
+	LSM303_write8(LSM303_REGISTER_CTRL5, 0x00);
+	LSM303_write8(LSM303_REGISTER_CTRL7, 0b00000011);
+}
+
 uint8_t LSM303_new_accel_data(void)
 {
 	if(LSM303_read8(LSM303_REGISTER_STATUS_A) & (1<<3))

@@ -1,23 +1,13 @@
 /**
  * \file
  *
- * \brief Empty user application template
+ * \brief TheSixthSense Project
  *
  */
 
 /**
- * \mainpage User Application template doxygen documentation
+ * \mainpage User Application
  *
- * \par Empty user application template
- *
- * Bare minimum empty user application template
- *
- * \par Content
- *
- * -# Include the ASF header files (through asf.h)
- * -# "Insert system clock initialization code here" comment
- * -# Minimal main function that starts with a call to board_init()
- * -# "Insert application code here" comment
  *
  */
 
@@ -27,7 +17,7 @@
  */
 
 
-///////////////////////////////////////////// Source Version 1.2 //////////////////////////////////
+///////////////////////////////////////////// Source Version 1.3 //////////////////////////////////
 ////////////////////////////////////// Works with TheSixthSense PCB V1.3 ///////////////////////////
 
 /*
@@ -257,53 +247,15 @@ int main (void)
 	//motor_test();
 }
 
-//switch all motors on with full power
-//then rotate the angle value an bring all motors to spin at the correct values
-void motor_test(void)
-{
-	//turn all motors individual on
-	for(uint8_t i = 0;i<sizeof(motor_soft_bam);i++) {
-		motor_soft_bam[i]=16;
-		delay_ms(1000);
-		motor_soft_bam[i]=0;
-	}
-	
-	float angle = 0.0;
-	
-	while(1) {
-		
-		delay_ms(100);
-		
-		angle += 10.0;
-		
-		if(angle > 360.0) angle -= 360.0;
-		
-		uint8_t sector = angle / (360.0 / MOTOR_NUM);
-		
-		uint16_t ang = (uint16_t)angle % MOTOR_NUM;
-		
-		//stop all motors		
-		for(uint8_t i = 0;i<sizeof(motor_soft_bam);i++) {
-			motor_soft_bam[i]=0;
-		}
-		
-		//set one active...
-		if(sector < MOTOR_NUM) {
-			motor_soft_bam[sector] = 16;
-		} else {
-			gpio_toggle_pin(LED_GREEN_O);
-		}
-	}
-}
-
 #define ADC_MEASURE_INTERVAL	50 //(uint16_t)
 //normal operation program
 //wait a second, read the values start the correct motor(s) for 0,3s
 //flash short the green led
 void main_program(void)
 {
-	uint16_t adc_interval = 0;
-	float angle= 0.0;
+	//start with battery measure
+	uint16_t	adc_interval = ADC_MEASURE_INTERVAL + 1;
+	float		angle= 0.0;
 	
 	//offset if needed (only positive allowed)
 	float offset_ang = 0.0;
@@ -386,8 +338,6 @@ void main_program(void)
 		
 		uint8_t sector = angle / (360.0 / MOTOR_NUM);
 		
-		uint16_t ang = (uint16_t)angle % MOTOR_NUM;
-		
 		//get correct motor
 		if(sector < MOTOR_NUM) {
 			motor_soft_bam[sector] = MAX_MOTOR_FORCE;
@@ -404,7 +354,7 @@ void main_program(void)
 			motor_soft_bam[i]=0;
 		}
 		
-		//stop program if USB is pluged in for charging
+		//stop program if USB is plugged in for charging
 		while(gpio_pin_is_high(USB_DETECT_I)) 
 		{
 			//blink LED in charge mode
@@ -421,8 +371,31 @@ void main_program(void)
 			adc_value = read_bat();
 			if(adc_value < 3900) // -> 3,10 Volt @ 10k || 10k
 			{
-				//for the first tests, use motors 
-				delay_ms(4000);
+				
+				// enter low power mode and never wake up,
+				// do power cycle with main switch, if you want to wakeup the controller again
+				// because 
+				// it's easy			
+				// and you didn't know how deep the voltage was dropping while in sleep mode and if the LSM303D needs a reset...
+				
+				//stop all motors an blinker fast, to say: "we are going to sleep"
+				for(uint8_t i = 0;i<sizeof(motor_soft_bam);i++) {
+					motor_soft_bam[i]=0;
+					gpio_toggle_pin(LED_GREEN_O);
+					delay_ms(100);
+				}
+				gpio_set_pin_low(LED_GREEN_O);
+				
+				//set LSM303D to sleep
+				LSM303_set_sleep();
+				
+				//set ATXMega32E5 to sleep
+				sleep_set_mode(SLEEP_SMODE_PDOWN_gc);
+				sleep_enable();
+				sleep_enter();
+				
+				//this section is never reached
+				// ...
 			}
 		}
 	
@@ -473,6 +446,10 @@ void calibrate_program(void)
 	gpio_set_pin_low(LED_GREEN_O);
 }
 
+//////////////// Test function section /////////////////
+
+///// insert a function to your main application and you could test your hardware
+
 //blink led if not pointed to the north (+- 10°)
 //led on if pointed to the north (+- 10°)
 void test_program(void)
@@ -503,5 +480,42 @@ void test_program(void)
 		}
 		angle = 0.0;
 		
+	}
+}
+
+//switch all motors on with full power
+//then rotate the angle value an bring all motors to spin at the correct values
+void motor_test(void)
+{
+	//turn all motors individual on
+	for(uint8_t i = 0;i<sizeof(motor_soft_bam);i++) {
+		motor_soft_bam[i]=16;
+		delay_ms(1000);
+		motor_soft_bam[i]=0;
+	}
+	
+	float angle = 0.0;
+	
+	while(1) {
+		
+		delay_ms(100);
+		
+		angle += 10.0;
+		
+		if(angle > 360.0) angle -= 360.0;
+		
+		uint8_t sector = angle / (360.0 / MOTOR_NUM);
+		
+		//stop all motors
+		for(uint8_t i = 0;i<sizeof(motor_soft_bam);i++) {
+			motor_soft_bam[i]=0;
+		}
+		
+		//set one active...
+		if(sector < MOTOR_NUM) {
+			motor_soft_bam[sector] = 16;
+			} else {
+			gpio_toggle_pin(LED_GREEN_O);
+		}
 	}
 }
