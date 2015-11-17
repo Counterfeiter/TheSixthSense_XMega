@@ -54,15 +54,31 @@
 
 #define MAX_MOTOR_FORCE			19
 
-#define CALI_PROGRAMM_ENTER_CNT	3	
+//some main program timings
+#define CALI_PROGRAMM_ENTER		1500 //* 2 ms
+#define WAIT_IDLE_MODE			1000 //* 2 ms
+#define WAIT_VIBRATE_MODE		150  //* 2 ms
+
+//mean value filter constant
+#define MEAN_VALUE				128
+
+#define ADC_MEASURE_INTERVAL	50 //(uint16_t) depending on the vibration intervals
 	
-#define PI 3.14159265
+#define PI						3.14159265
 
 #define TIMER_RESOLUTION		500 // 250 HZ at 2 MHz and div = 8
 
 volatile uint8_t motor_soft_bam[MOTOR_NUM] = {0};
 
 #define SET_MOTOR_BAM(mot,bam)	{motor_soft_bam[mot-1]=bam;}
+	
+//software states of the main state machine (more states in the future?)
+#define MAIN_VIBRATE			0
+#define MAIN_IDLE				1
+#define MAIN_CHECK_VBAT			2
+
+//state machine
+static uint8_t main_state = MAIN_CHECK_VBAT; 
 
 void test_program(void);
 void main_program(void);
@@ -73,7 +89,7 @@ void soft_bam_process(uint8_t bitmask);
 
 float mag_direction(const vector_f *magData);
 
-//you can use also a non calibartet and non accel. version, with this easy equation
+//you can use also a non calibrated and non accel. version, with this easy equation
 float mag_direction(const vector_f *magData)
 {
 	return ((atan2 (magData->x,magData->z) * 180.0 / PI) + 180.0);
@@ -206,18 +222,30 @@ void init_bam(void)
 	tc45_write_clock_source(&TCC4, TC45_CLKSEL_DIV8_gc);
 }
 
+static void alarm(uint32_t time)
+{
+//gpio_toggle_pin(LED_GREEN_O);
+	rtc_set_alarm(time);
+}
+
 
 int main (void)
 {
 	irq_initialize_vectors();
 	cpu_irq_enable();
 
-	// Initialize the sleep manager
-	sleepmgr_init();
-
 	sysclk_init();
 
 	board_init();
+	
+	// Initialize the sleep manager
+	sleepmgr_init();
+	
+	
+	//start rtc
+	rtc_init();
+	rtc_set_callback(alarm);
+	rtc_set_alarm_relative(0);
 	
 	init_bam();
 	
@@ -247,158 +275,193 @@ int main (void)
 	//motor_test();
 }
 
-#define ADC_MEASURE_INTERVAL	50 //(uint16_t)
 //normal operation program
 //wait a second, read the values start the correct motor(s) for 0,3s
 //flash short the green led
 void main_program(void)
 {
 	//start with battery measure
-	uint16_t	adc_interval = ADC_MEASURE_INTERVAL + 1;
+	uint16_t	adc_interval = 0;
 	float		angle= 0.0;
 	
 	//offset if needed (only positive allowed)
 	float offset_ang = 0.0;
 	
 	vector_f magData = {0.0, 0.0, 0.0};
-	vector_f accelData = {0.0, 0.0, 0.0};
+	vector_32 accelData = {0, 0, 0};
+	vector_f accelData_f;
 		
-	uint8_t cnt_pushbutton = 0;
+	uint16_t cnt_pushbutton = 0;
+	
+	uint32_t wait_idle = 0;
+	uint32_t wait_vibrate = 0;
 	
 	while(1) {
 		
+		
+		//working in time slices of about 2 ms ... see rtc settings (conf_rtc.h)
+		sleepmgr_enter_sleep();
+		
+		//awake and check the stuff in this main loop
+		
 		//Test push button to enter the cali program
 		if(gpio_pin_is_low(PUSH_BUTTON_I)) {
-			if(cnt_pushbutton < 255) {
+			if(cnt_pushbutton < UINT16_MAX) {
 				cnt_pushbutton++;
 			}
 		}
 		if(gpio_pin_is_high(PUSH_BUTTON_I)) {
-			if(cnt_pushbutton > CALI_PROGRAMM_ENTER_CNT) {
+			if(cnt_pushbutton > CALI_PROGRAMM_ENTER) {
 				calibrate_program();
 			}
 			cnt_pushbutton = 0;
 		}
+		
 
-		//reset vector
-		accelData.x = 0.0;
-		accelData.y = 0.0;
-		accelData.z = 0.0;
-		
-		uint8_t counter = 0;
-		
-		//average/filter the accel reading, cause walking and other activity is changing the gravity vector
-		for(uint8_t i = 0; i<(50+1); i++) {
-			vector_f accelData_temp;
+		vector_32 accelData_temp;
 			
-			//wait for new accel_data
-			while(!LSM303_new_accel_data()) {}
-			
+		//if new data ready to read?		
+		if(LSM303_new_accel_data()) {
 			//read data
-			if(LSM303_read_accel(&accelData_temp) == 0x00) {
+			if(LSM303_read_accel_32(&accelData_temp) == 0x00) {
 				//error condition?
+				gpio_set_pin_high(LED_GREEN_O);
 				delay_ms(10);
-			} else {
-			
-				//discard first data (i==0), maybe its an very old one?
-				if(i) {
-					accelData.x += accelData_temp.x;
-					accelData.y += accelData_temp.y;
-					accelData.z += accelData_temp.z;
-					counter++;
-				}
-			}
-		}
-		
-		//avr end
-		accelData.x /= (float)counter;
-		accelData.y /= (float)counter;
-		accelData.z /= (float)counter;
-		
-		//read from mag sensor
-		if(LSM303_read_mag(&magData) == 0x00) {
-			delay_ms(10);
-		}
-			
-		//angle = mag_direction();
-		
-		//calc tilt compensated compass reading
-		angle = heading(&magData,&accelData);
-
-		gpio_set_pin_high(LED_GREEN_O);
-		
-		if(angle > 360.0) angle = 360.0;
-		
-		//add offset position on the leg position
-		angle += offset_ang;
-		if(angle > 360.0) angle -= 360.0;
-		
-		//turn the direction, uncomment if motors are not in the same direction like the pcb measure
-		angle = 360.0 - angle;
-		
-		uint8_t sector = angle / (360.0 / MOTOR_NUM);
-		
-		//get correct motor
-		if(sector < MOTOR_NUM) {
-			motor_soft_bam[sector] = MAX_MOTOR_FORCE;
-		} else {
-			//gpio_toggle_pin(LED_GREEN_O);
-		}
-		
-		gpio_set_pin_low(LED_GREEN_O);
-		
-		delay_ms(300);
-		
-		//stop all motors
-		for(uint8_t i = 0;i<sizeof(motor_soft_bam);i++) {
-			motor_soft_bam[i]=0;
-		}
-		
-		//stop program if USB is plugged in for charging
-		while(gpio_pin_is_high(USB_DETECT_I)) 
-		{
-			//blink LED in charge mode
-			gpio_toggle_pin(LED_GREEN_O);
-			delay_ms(300);
-		}
-		
-		gpio_set_pin_low(LED_GREEN_O);
-			
-		uint16_t adc_value = 0;
-			
-		if(adc_interval++ > ADC_MEASURE_INTERVAL) {
-			adc_interval = 0;
-			adc_value = read_bat();
-			if(adc_value < 3900) // -> 3,10 Volt @ 10k || 10k
-			{
-				
-				// enter low power mode and never wake up,
-				// do power cycle with main switch, if you want to wakeup the controller again
-				// because 
-				// it's easy			
-				// and you didn't know how deep the voltage was dropping while in sleep mode and if the LSM303D needs a reset...
-				
-				//stop all motors an blinker fast, to say: "we are going to sleep"
-				for(uint8_t i = 0;i<sizeof(motor_soft_bam);i++) {
-					motor_soft_bam[i]=0;
-					gpio_toggle_pin(LED_GREEN_O);
-					delay_ms(100);
-				}
 				gpio_set_pin_low(LED_GREEN_O);
-				
-				//set LSM303D to sleep
-				LSM303_set_sleep();
-				
-				//set ATXMega32E5 to sleep
-				sleep_set_mode(SLEEP_SMODE_PDOWN_gc);
-				sleep_enable();
-				sleep_enter();
-				
-				//this section is never reached
-				// ...
+			} 
+			else 
+			{
+				//mean value filter
+				accelData.x += accelData_temp.x - (accelData.x / MEAN_VALUE);
+				accelData.y += accelData_temp.y - (accelData.y / MEAN_VALUE);
+				accelData.z += accelData_temp.z - (accelData.z / MEAN_VALUE);
 			}
 		}
-	
+		
+		//gpio_toggle_pin(LED_GREEN_O);
+		
+		switch(main_state) {
+			case MAIN_CHECK_VBAT:
+			{
+				uint16_t adc_value = 0;
+				adc_interval = 0;
+				adc_value = read_bat();
+				if(adc_value < 3900) // -> 3,10 Volt @ 10k || 10k
+				{
+					
+					// enter low power mode and never wake up,
+					// do power cycle with main switch, if you want to wakeup the controller again
+					// because
+					// it's easy
+					// and you didn't know how deep the voltage was dropping while in sleep mode and if the LSM303D needs a reset...
+					
+					//stop all motors an blinker fast, to say: "we are going to sleep"
+					for(uint8_t i = 0;i<sizeof(motor_soft_bam);i++) {
+						motor_soft_bam[i]=0;
+						gpio_toggle_pin(LED_GREEN_O);
+						delay_ms(100);
+					}
+					gpio_set_pin_low(LED_GREEN_O);
+					
+					//set LSM303D to sleep
+					LSM303_set_sleep();
+					
+					//set ATXMega32E5 to sleep
+					sleep_set_mode(SLEEP_SMODE_PDOWN_gc);
+					sleep_enable();
+					sleep_enter();
+					
+					//this section will never reached
+					// ...
+				}
+				//switch to idle mode
+				main_state = MAIN_IDLE;
+				break;
+			}
+			case MAIN_IDLE:
+			{
+				if(wait_idle++ > WAIT_IDLE_MODE) {
+					wait_idle = 0;
+					main_state = MAIN_VIBRATE;
+				}
+				break;
+			}
+			case MAIN_VIBRATE:
+			{
+				//enter first--- set all settings
+				wait_vibrate++;
+				if(wait_vibrate == 1) {
+					//read from mag sensor
+					if(LSM303_read_mag(&magData) == 0x00) {
+						gpio_set_pin_high(LED_GREEN_O);
+						delay_ms(10);
+						gpio_set_pin_low(LED_GREEN_O);
+					}
+		
+					accelData_f.x = (float)accelData.x;
+					accelData_f.y = (float)accelData.y;
+					accelData_f.z = (float)accelData.z;
+				
+					//calc tilt compensated compass reading
+					angle = heading(&magData,&accelData_f);
+
+					gpio_set_pin_high(LED_GREEN_O);
+				
+					if(angle > 360.0) angle = 360.0;
+				
+					//add offset position on the leg position
+					angle += offset_ang;
+					if(angle > 360.0) angle -= 360.0;
+				
+					//turn the direction, uncomment if motors are not in the same direction like the pcb measure
+					angle = 360.0 - angle;
+				
+					uint8_t sector = angle / (360.0 / MOTOR_NUM);
+				
+					//get correct motor
+					if(sector < MOTOR_NUM) {
+						motor_soft_bam[sector] = MAX_MOTOR_FORCE;
+					} 
+					else 
+					{
+						//gpio_toggle_pin(LED_GREEN_O);
+					}
+				
+					gpio_set_pin_low(LED_GREEN_O);
+					
+				} else if(wait_vibrate > WAIT_VIBRATE_MODE) {
+					wait_vibrate = 0;
+				
+				
+					//stop all motors
+					for(uint8_t i = 0;i<sizeof(motor_soft_bam);i++) {
+						motor_soft_bam[i]=0;
+					}
+				
+					//stop program if USB is plugged in for charging
+					while(gpio_pin_is_high(USB_DETECT_I))
+					{
+						//blink LED in charge mode
+						gpio_toggle_pin(LED_GREEN_O);
+						delay_ms(300);
+					}
+				
+					gpio_set_pin_low(LED_GREEN_O);
+				
+				
+					//switch state
+					if(adc_interval++ > ADC_MEASURE_INTERVAL) {
+						main_state = MAIN_CHECK_VBAT;
+					} 
+					else 
+					{
+						main_state = MAIN_IDLE;
+					}
+				}
+				
+				break;
+			}
+		}
 	}
 }
 
@@ -461,7 +524,7 @@ void test_program(void)
 	
 	while(1) {
 		delay_ms(10);
-		if(LSM303_read_accel(&accelData) == 0x00) {
+		if(LSM303_read_accel_f(&accelData) == 0x00) {
 			delay_ms(10);
 		}
 		if(LSM303_read_mag(&magData) == 0x00) {

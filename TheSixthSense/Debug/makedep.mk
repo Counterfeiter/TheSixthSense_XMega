@@ -12,6 +12,8 @@ src\ASF\xmega\drivers\nvm\nvm.c
 
 src\ASF\xmega\drivers\nvm\nvm_asm.s
 
+src\ASF\xmega\drivers\rtc\rtc.c
+
 src\ASF\xmega\drivers\tc45\tc45.c
 
 src\ASF\xmega\drivers\twi\twim.c

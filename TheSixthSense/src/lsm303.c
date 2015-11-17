@@ -83,7 +83,7 @@
 /// I2C options ///
 #define TWI_MASTER_PORT							PORTC
 #define TWI_MASTER								TWIC
-#define TWI_SPEED								400000
+#define TWI_SPEED								100000
 
 void LSM303_write8(uint8_t reg, uint8_t value);
 uint8_t LSM303_read8(uint8_t reg);
@@ -162,7 +162,7 @@ uint8_t LSM303_new_mag_data(void)
 	return false;
 }
 
-uint8_t LSM303_read_accel(vector_f *accelData) 
+uint8_t LSM303_read_accel_f(vector_f *accelData) 
 {
 	
 	uint8_t buffer[7];
@@ -194,6 +194,42 @@ uint8_t LSM303_read_accel(vector_f *accelData)
 	accelData->x = (float)((xlo | (xhi << 8)) >> 4);
 	accelData->y = (float)((ylo | (yhi << 8)) >> 4);
 	accelData->z = (float)((zlo | (zhi << 8)) >> 4);
+	
+	return 1;
+}
+
+uint8_t LSM303_read_accel_32(vector_32 *accelData)
+{
+	
+	uint8_t buffer[7];
+	
+	// Package to send
+	twi_package_t packet;
+	//address or command
+	packet.addr_length	=	1;
+	packet.addr[0]		=	LSM303_REGISTER_OUT_X_L_A | 0x80;
+	packet.chip			=	LSM303_ADDRESS;
+	packet.buffer		=	(void *)buffer;
+	packet.length		=	6;
+	// Wait if bus is busy
+	packet.no_wait     =	false;
+	
+	
+	if(twi_master_read(&TWI_MASTER, &packet)) {
+		return 0x00;
+	}
+
+	int16_t xlo = buffer[0];
+	int16_t xhi = buffer[1];
+	int16_t ylo = buffer[2];
+	int16_t yhi = buffer[3];
+	int16_t zlo = buffer[4];
+	int16_t zhi = buffer[5];
+
+	// Shift values to create properly formed integer (low byte first)
+	accelData->x = ((xlo | (xhi << 8)) >> 4);
+	accelData->y = ((ylo | (yhi << 8)) >> 4);
+	accelData->z = ((zlo | (zhi << 8)) >> 4);
 	
 	return 1;
 }
